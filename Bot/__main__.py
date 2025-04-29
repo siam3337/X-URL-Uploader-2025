@@ -3,6 +3,15 @@ import logging
 from . import client
 from aiohttp import ClientSession
 from pyrogram import idle
+import subprocess
+
+# Start cronjob.py
+subprocess.Popen(["python", "FakeFlask.py"])
+
+# Now continue with main.py
+print("Main is running!")
+
+# Your main.py logic goes here...
 
 
 logging.basicConfig(level=logging.INFO,
