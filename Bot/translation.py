@@ -1,6 +1,7 @@
 
 
 class Translation(object):
+    FETCHING_FORMATS = "Fetching Available Formats..."
     START_TEXT = "Hi {},\nI'm X-URL-Uploader!\nYou can upload HTTP/HTTPS direct link using this bot!\n\n/help for more details!"
     FORMAT_SELECTION = "Select the desired format: <a href='{}'>file size might be approximate</a>"
     SET_CUSTOM_USERNAME_PASSWORD = "If you want to download premium videos, provide in the following format:\nURL | filename | username | password"
