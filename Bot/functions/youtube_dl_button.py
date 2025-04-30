@@ -7,7 +7,7 @@ import time
 import json
 import asyncio
 import queue
-import threading
+import subprocess
 from datetime import datetime
 from PIL import Image
 from hachoir.metadata import extractMetadata
@@ -65,14 +65,14 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                 )
                 progress_queue.task_done()
             except queue.Empty:
-                await asyncio.sleep(0.1)  # Avoid busy-waiting
+                await asyncio.sleep(0.1)
             except asyncio.CancelledError:
                 break
 
     # Start queue processing task
     queue_task = asyncio.create_task(process_progress_queue())
 
-    # yt-dlp progress hook (mimicking working bot)
+    # yt-dlp progress hook
     def progress_hook(d):
         if d['status'] == 'downloading':
             downloaded = d.get('downloaded_bytes', 0)
@@ -107,35 +107,65 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
     if client.config.HTTP_PROXY:
         ydl_opts['proxy'] = client.config.HTTP_PROXY
 
-    # Run download in a separate thread (mimicking synchronous behavior)
-    def run_download():
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                client.logger.debug(f"Starting yt-dlp download for {youtube_dl_url} with options: {ydl_opts}")
-                ydl.download([youtube_dl_url])
-        except Exception as e:
-            client.logger.debug(f"yt-dlp download failed for {youtube_dl_url}: {str(e)}")
-            raise e
-
+    # Run yt-dlp as a subprocess to avoid threading issues
+    download_directory = f"{output_path}.{youtube_dl_ext}"
+    if is_audio_only:
+        download_directory = f"{output_path}.mp3"
     try:
-        download_thread = threading.Thread(target=run_download)
-        download_thread.start()
-        # Wait for the thread to complete with a timeout
-        await asyncio.get_event_loop().run_in_executor(None, download_thread.join, 120)
-        download_directory = f"{output_path}.{youtube_dl_ext}"
+        cmd = [
+            'yt-dlp',
+            '-f', ydl_opts['format'],
+            '-o', output_path,
+            '--user-agent', ydl_opts['user_agent'],
+            '--no-playlist',
+            '--verbose'
+        ]
         if is_audio_only:
-            download_directory = f"{output_path}.mp3"
-            if not os.path.exists(download_directory) and os.path.exists(output_path):
-                os.rename(output_path, download_directory)
+            cmd.extend(['--extract-audio', '--audio-format', 'mp3', '--audio-quality', '192'])
+        if client.config.HTTP_PROXY:
+            cmd.extend(['--proxy', client.config.HTTP_PROXY])
+        cmd.append(youtube_dl_url)
+        client.logger.debug(f"Running yt-dlp command: {' '.join(cmd)}")
+        process = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120  # 2-minute timeout
+        )
+        if process.returncode != 0:
+            error_msg = process.stderr or "Unknown yt-dlp error"
+            client.logger.debug(f"yt-dlp subprocess failed for {youtube_dl_url}: {error_msg}")
+            raise subprocess.CalledProcessError(process.returncode, cmd, process.stdout, process.stderr)
+        # Rename audio file if needed
+        if is_audio_only and not os.path.exists(download_directory) and os.path.exists(output_path):
+            os.rename(output_path, download_directory)
+    except subprocess.TimeoutExpired:
+        queue_task.cancel()
+        client.logger.debug(f"Download timed out for {youtube_dl_url}")
+        await bot.edit_message_text(
+            text=client.translation.NO_VOID_FORMAT_FOUND.format("Download timed out"),
+            chat_id=update.message.chat.id,
+            message_id=progress_message.id
+        )
+        return False
+    except subprocess.CalledProcessError as e:
+        queue_task.cancel()
+        client.logger.debug(f"yt-dlp subprocess failed for {youtube_dl_url}: {e.stderr}")
+        await bot.edit_message_text(
+            text=client.translation.NO_VOID_FORMAT_FOUND.format(e.stderr or "yt-dlp failed"),
+            chat_id=update.message.chat.id,
+            message_id=progress_message.id
+        )
+        return False
     except Exception as e:
         queue_task.cancel()
         client.logger.debug(f"Download failed for {youtube_dl_url}: {str(e)}")
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
             chat_id=update.message.chat.id,
-            message_id=progress_message.id
-        )
-        return False
+            message_idVisualViewportWidth: 100%
+    )
+    return False
     finally:
         queue_task.cancel()
 
