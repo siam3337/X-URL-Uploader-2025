@@ -34,16 +34,21 @@ async def download_coroutine(bot: Union[Client, None], session: ClientSession, u
                     downloaded += client.config.CHUNK_SIZE
                     now = time.time()
                     diff = now - start
-                    if round(diff % 5.00) == 0 or downloaded == total_length:
-                        percentage = downloaded * 100 / total_length
+                    percentage = downloaded * 100 / total_length
+                    if round(diff % 2.00) == 0 or round(percentage) % 5 == 0 or downloaded == total_length:
                         speed = downloaded / diff
                         elapsed_time = round(diff) * 1000
                         time_to_completion = round(
                             (total_length - downloaded) / speed) * 1000
                         estimated_total_time = elapsed_time + time_to_completion
                         try:
-                            current_message = "Download Status {}%\nURL: {}\nFile Size: {}\nDownloaded: {}\nETA: {}".format(percentage,
-                                                                                                                            url, humanbytes(total_length), humanbytes(downloaded), TimeFormatter(estimated_total_time))
+                            current_message = "Download Status {}%\nURL: {}\nFile Size: {}\nDownloaded: {}\nETA: {}".format(
+                                round(percentage, 2),
+                                url,
+                                humanbytes(total_length),
+                                humanbytes(downloaded),
+                                TimeFormatter(estimated_total_time)
+                            )
                             if current_message != display_message:
                                 if bot:
                                     await bot.edit_message_text(
