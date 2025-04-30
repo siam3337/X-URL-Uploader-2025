@@ -2,10 +2,8 @@
 # -*- coding: utf-8 -*-
 # (c) Shrimadhav U K
 
-
 import math
 import time
-
 
 async def progress_for_pyrogram(
     current,
@@ -47,10 +45,7 @@ async def progress_for_pyrogram(
         except:
             pass
 
-
 def humanbytes(size):
-    # https://stackoverflow.com/a/49361727/4723940
-    # 2**10 = 1024
     if not size:
         return ""
     power = 2**10
@@ -60,7 +55,6 @@ def humanbytes(size):
         size /= power
         n += 1
     return str(round(size, 2)) + " " + Dic_powerN[n] + 'B'
-
 
 def TimeFormatter(milliseconds: int) -> str:
     seconds, milliseconds = divmod(int(milliseconds), 1000)
