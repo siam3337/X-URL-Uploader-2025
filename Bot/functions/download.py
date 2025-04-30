@@ -36,17 +36,19 @@ async def download_coroutine(bot: Union[Client, None], session: ClientSession, u
                     diff = now - start
                     percentage = downloaded * 100 / total_length
                     if round(diff % 2.00) == 0 or round(percentage) % 5 == 0 or downloaded == total_length:
-                        speed = downloaded / diff
+                        speed = downloaded / diff if diff > 0 else downloaded
                         elapsed_time = round(diff) * 1000
                         time_to_completion = round(
-                            (total_length - downloaded) / speed) * 1000
+                            (total_length - downloaded) / speed) * 1000 if speed > 0 else 0
                         estimated_total_time = elapsed_time + time_to_completion
                         try:
-                            current_message = "Download Status {}%\nURL: {}\nFile Size: {}\nDownloaded: {}\nETA: {}".format(
+                            current_message = "Downloading...\n[{0}{1}] \nP: {2}%\n{3} of {4}\nSpeed: {5}/s\nETA: {6}".format(
+                                ''.join(["█" for i in range(math.floor(percentage / 5))]),
+                                ''.join(["░" for i in range(20 - math.floor(percentage / 5))]),
                                 round(percentage, 2),
-                                url,
-                                humanbytes(total_length),
                                 humanbytes(downloaded),
+                                humanbytes(total_length),
+                                humanbytes(speed),
                                 TimeFormatter(estimated_total_time)
                             )
                             if current_message != display_message:
