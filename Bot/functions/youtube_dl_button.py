@@ -45,20 +45,36 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         reply_to_message_id=update.message.reply_to_message.id
     )
 
+    # Queue for progress updates
+    progress_queue = asyncio.Queue()
+
+    # Async task to consume progress queue
+    async def process_progress_queue():
+        while True:
+            try:
+                downloaded, total = await progress_queue.get()
+                await progress_for_pyrogram(
+                    downloaded,
+                    total,
+                    "Downloading...",
+                    progress_message,
+                    start.timestamp()
+                )
+                progress_queue.task_done()
+            except asyncio.CancelledError:
+                break
+
+    # Start queue processing task
+    queue_task = asyncio.create_task(process_progress_queue())
+
     # yt-dlp progress hook
     def progress_hook(d):
         if d['status'] == 'downloading':
             downloaded = d.get('downloaded_bytes', 0)
             total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
             if total > 0:
-                asyncio.create_task(
-                    progress_for_pyrogram(
-                        downloaded,
-                        total,
-                        "Downloading...",
-                        progress_message,
-                        start.timestamp()
-                    )
+                asyncio.get_event_loop().run_until_complete(
+                    progress_queue.put((downloaded, total))
                 )
             else:
                 client.logger.debug(f"No total_bytes for {youtube_dl_url}: {d}")
@@ -71,7 +87,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         'quiet': True,
         'no_warnings': True,
         'youtube_skip_dash_manifest': True,
-        'no_part': True,  # Ensure accurate file sizes
+        'no_part': True,
     }
     if client.config.HTTP_PROXY:
         ydl_opts['proxy'] = client.config.HTTP_PROXY
@@ -90,12 +106,15 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         if "audio" in tg_send_type:
             download_directory = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.mp3"
     except Exception as e:
+        queue_task.cancel()
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
             chat_id=update.message.chat.id,
             message_id=progress_message.id
         )
         return False
+    finally:
+        queue_task.cancel()
 
     if os.path.exists(download_directory):
         end_one = datetime.now()
