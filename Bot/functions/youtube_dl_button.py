@@ -88,7 +88,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
     is_audio_only = "audio" in tg_send_type
     output_path = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}"
     ydl_opts = {
-        'format': f"{youtube_dl_format}+bestaudio/best" if not is_audio_only else youtube_dl_format,
+        'format': 'bestaudio' if is_audio_only else f"{youtube_dl_format}+bestaudio/best",
         'outtmpl': output_path,
         'noplaylist': True,
         'progress_hooks': [progress_hook],
@@ -106,6 +106,15 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         }]
     if client.config.HTTP_PROXY:
         ydl_opts['proxy'] = client.config.HTTP_PROXY
+
+    # Debug available formats before download
+    try:
+        with YoutubeDL({'user_agent': ydl_opts['user_agent'], 'quiet': False, 'verbose': True}) as ydl:
+            info_dict = ydl.extract_info(youtube_dl_url, download=False)
+            formats = info_dict.get('formats', [])
+            client.logger.debug(f"Available formats for {youtube_dl_url}: {json.dumps(formats, indent=2)}")
+    except Exception as e:
+        client.logger.debug(f"Failed to fetch formats for debugging: {str(e)}")
 
     # Run yt-dlp as a subprocess to avoid threading issues
     download_directory = f"{output_path}.{youtube_dl_ext}"
