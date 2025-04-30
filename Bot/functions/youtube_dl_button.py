@@ -7,7 +7,6 @@ import time
 import json
 import asyncio
 import queue
-import subprocess
 from datetime import datetime
 from PIL import Image
 from hachoir.metadata import extractMetadata
@@ -65,7 +64,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                 )
                 progress_queue.task_done()
             except queue.Empty:
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.1)  # Avoid busy-waiting
             except asyncio.CancelledError:
                 break
 
@@ -81,94 +80,35 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                 progress_queue.put((downloaded, total))
             else:
                 client.logger.debug(f"No total_bytes for {youtube_dl_url}: {d}")
-        elif d['status'] == 'error':
-            client.logger.debug(f"yt-dlp error: {d.get('error', 'Unknown error')}")
 
-    # Simplified ydl_opts to match working bot
-    is_audio_only = "audio" in tg_send_type
-    output_path = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}"
     ydl_opts = {
-        'format': 'bestaudio' if is_audio_only else f"{youtube_dl_format}+bestaudio/best",
-        'outtmpl': output_path,
+        'format': youtube_dl_format,
+        'outtmpl': f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.%(ext)s",
         'noplaylist': True,
         'progress_hooks': [progress_hook],
-        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'merge_output_format': 'mp4' if not is_audio_only else None,
-        'quiet': False,
-        'verbose': True,
-        'no_warnings': False,
+        'quiet': True,
+        'no_warnings': True,
+        'youtube_skip_dash_manifest': True,
+        'no_part': True,
     }
-    if is_audio_only:
+    if client.config.HTTP_PROXY:
+        ydl_opts['proxy'] = client.config.HTTP_PROXY
+    if "audio" in tg_send_type:
         ydl_opts['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '192',
+            'preferredquality': youtube_dl_format,
         }]
-    if client.config.HTTP_PROXY:
-        ydl_opts['proxy'] = client.config.HTTP_PROXY
+        ydl_opts['format'] = 'bestaudio'
 
-    # Debug available formats before download
     try:
-        with YoutubeDL({'user_agent': ydl_opts['user_agent'], 'quiet': False, 'verbose': True}) as ydl:
-            info_dict = ydl.extract_info(youtube_dl_url, download=False)
-            formats = info_dict.get('formats', [])
-            client.logger.debug(f"Available formats for {youtube_dl_url}: {json.dumps(formats, indent=2)}")
-    except Exception as e:
-        client.logger.debug(f"Failed to fetch formats for debugging: {str(e)}")
-
-    # Run yt-dlp as a subprocess to avoid threading issues
-    download_directory = f"{output_path}.{youtube_dl_ext}"
-    if is_audio_only:
-        download_directory = f"{output_path}.mp3"
-    try:
-        cmd = [
-            'yt-dlp',
-            '-f', ydl_opts['format'],
-            '-o', output_path,
-            '--user-agent', ydl_opts['user_agent'],
-            '--no-playlist',
-            '--verbose'
-        ]
-        if is_audio_only:
-            cmd.extend(['--extract-audio', '--audio-format', 'mp3', '--audio-quality', '192'])
-        if client.config.HTTP_PROXY:
-            cmd.extend(['--proxy', client.config.HTTP_PROXY])
-        cmd.append(youtube_dl_url)
-        client.logger.debug(f"Running yt-dlp command: {' '.join(cmd)}")
-        process = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120  # 2-minute timeout
-        )
-        if process.returncode != 0:
-            error_msg = process.stderr or "Unknown yt-dlp error"
-            client.logger.debug(f"yt-dlp subprocess failed for {youtube_dl_url}: {error_msg}")
-            raise subprocess.CalledProcessError(process.returncode, cmd, process.stdout, process.stderr)
-        # Rename audio file if needed
-        if is_audio_only and not os.path.exists(download_directory) and os.path.exists(output_path):
-            os.rename(output_path, download_directory)
-    except subprocess.TimeoutExpired:
-        queue_task.cancel()
-        client.logger.debug(f"Download timed out for {youtube_dl_url}")
-        await bot.edit_message_text(
-            text=client.translation.NO_VOID_FORMAT_FOUND.format("Download timed out"),
-            chat_id=update.message.chat.id,
-            message_id=progress_message.id
-        )
-        return False
-    except subprocess.CalledProcessError as e:
-        queue_task.cancel()
-        client.logger.debug(f"yt-dlp subprocess failed for {youtube_dl_url}: {e.stderr}")
-        await bot.edit_message_text(
-            text=client.translation.NO_VOID_FORMAT_FOUND.format(e.stderr or "yt-dlp failed"),
-            chat_id=update.message.chat.id,
-            message_id=progress_message.id
-        )
-        return False
+        with YoutubeDL(ydl_opts) as ydl:
+            await asyncio.to_thread(ydl.download, [youtube_dl_url])
+        download_directory = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.{youtube_dl_ext}"
+        if "audio" in tg_send_type:
+            download_directory = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.mp3"
     except Exception as e:
         queue_task.cancel()
-        client.logger.debug(f"Download failed for {youtube_dl_url}: {str(e)}")
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
             chat_id=update.message.chat.id,
@@ -345,6 +285,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     os.remove(thumb_image_path)
             time_taken_for_download = (end_one - start).seconds
             time_taken_for_upload = (end_two - end_one).seconds
+            # Retry edit_message_text to ensure success message overwrites progress
             for attempt in range(3):
                 try:
                     await bot.edit_message_text(
