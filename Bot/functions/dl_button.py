@@ -27,15 +27,14 @@ URL_REGEX = re.compile(
 
 async def ddl_call_back(bot: Client, update: CallbackQuery):
     tg_send_type, _, __ = update.data.split("=")
-    thumb_image_path = client.config.DOWNLOAD_LOCATION + \
-        "/" + str(update.from_user.id) + ".jpg"
+    thumb_image_path = client.config.DOWNLOAD_LOCATION + "/" + str(update.from_user.id) + ".jpg"
     if client.custom_thumbnail.get(update.from_user.id):
         thumb_image_path = client.custom_thumbnail.get(update.from_user.id)
     regex = URL_REGEX.search(update.message.reply_to_message.text)
     youtube_dl_url = regex.group(1)
     text = regex.group(2) if regex.group(2) else ""
     if "|" in text:
-        url_parts = youtube_dl_url.split("|")
+        url_parts = text.split("|")  # Fixed: Parse text, not youtube_dl_url
         if len(url_parts) == 2:
             _ = url_parts[0]
             custom_file_name = url_parts[1]
@@ -60,16 +59,14 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                 o = entity.offset
                 l = entity.length
                 youtube_dl_url = youtube_dl_url[o:o + l]
-    description = client.custom_caption.get(update.from_user.id) if client.custom_caption.get(update.from_user.id) else client.translation.CUSTOM_CAPTION_UL_FILE.format(
-        bot.me.mention)
+    description = client.custom_caption.get(update.from_user.id) if client.custom_caption.get(update.from_user.id) else client.translation.CUSTOM_CAPTION_UL_FILE.format(bot.me.mention)
     start = datetime.now()
-    await bot.edit_message_text(
-        text=client.translation.DOWNLOAD_START,
+    progress_message = await bot.send_message(
         chat_id=update.message.chat.id,
-        message_id=update.message.id
+        text=client.translation.DOWNLOAD_START,
+        reply_to_message_id=update.message.reply_to_message.id
     )
-    tmp_directory_for_each_user = client.config.DOWNLOAD_LOCATION + \
-        "/" + str(update.from_user.id)
+    tmp_directory_for_each_user = client.config.DOWNLOAD_LOCATION + "/" + str(update.from_user.id)
     if not os.path.isdir(tmp_directory_for_each_user):
         os.makedirs(tmp_directory_for_each_user)
     download_directory = tmp_directory_for_each_user + "/" + custom_file_name
@@ -81,7 +78,7 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
             youtube_dl_url,
             download_directory,
             update.message.chat.id,
-            update.message.id,
+            progress_message.id,
             c_time,
             None
         )
@@ -89,7 +86,7 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
         await bot.edit_message_text(
             text=client.translation.SLOW_URL_DECED,
             chat_id=update.message.chat.id,
-            message_id=update.message.id
+            message_id=progress_message.id
         )
         return False
     if os.path.exists(download_directory):
@@ -97,25 +94,21 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
         await bot.edit_message_text(
             text=client.translation.UPLOAD_START,
             chat_id=update.message.chat.id,
-            message_id=update.message.id
+            message_id=progress_message.id
         )
         file_size = client.config.TG_MAX_FILE_SIZE + 1
         try:
             file_size = os.stat(download_directory).st_size
         except FileNotFoundError as exc:
-            download_directory = os.path.splitext(
-                download_directory)[0] + "." + "mkv"
-            # https://stackoverflow.com/a/678242/4723940
+            download_directory = os.path.splitext(download_directory)[0] + "." + "mkv"
             file_size = os.stat(download_directory).st_size
         if file_size > client.config.TG_MAX_FILE_SIZE:
             await bot.edit_message_text(
                 chat_id=update.message.chat.id,
                 text=client.translation.RCHD_TG_API_LIMIT,
-                message_id=update.message.id
+                message_id=progress_message.id
             )
         else:
-            # get the correct width, height, and duration for videos greater than 10MB
-            # ref: message from @BotSupport
             width = 0
             height = 0
             duration = 0
@@ -124,11 +117,9 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                 if metadata is not None:
                     if metadata.has("duration"):
                         duration = metadata.get('duration').seconds
-            # auto generate thumbnail if not available
             if not os.path.exists(thumb_image_path):
                 if client.guess_mime_type(download_directory) in ffmpeg_supported_video_mimetypes:
                     await run_cmd('ffmpeg -ss {} -i "{}" -vframes 1 "{}"'.format(random.randint(0, duration), download_directory, thumb_image_path))
-            # get the correct width, height, and duration for videos greater than 10MB
             if os.path.exists(thumb_image_path):
                 width = 0
                 height = 0
@@ -139,24 +130,16 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                     height = metadata.get("height")
                 if tg_send_type == "vm":
                     height = width
-                # resize image
-                # ref: https://t.me/PyrogramChat/44663
-                # https://stackoverflow.com/a/21669827/4723940
-                Image.open(thumb_image_path).convert(
-                    "RGB").save(thumb_image_path)
+                Image.open(thumb_image_path).convert("RGB").save(thumb_image_path)
                 img = Image.open(thumb_image_path)
-                # https://stackoverflow.com/a/37631799/4723940
-                # img.thumbnail((90, 90))
                 if tg_send_type == "file":
                     img.resize((320, height))
                 else:
                     img.resize((90, height))
                 img.save(thumb_image_path, "JPEG")
-                # https://pillow.readthedocs.io/en/3.1.x/reference/Image.html#create-thumbnails
             else:
                 thumb_image_path = None
             start_time = time.time()
-            # try to upload file
             if tg_send_type == "audio":
                 media = await bot.send_audio(
                     chat_id=update.message.chat.id,
@@ -168,7 +151,7 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        update.message,
+                        progress_message,
                         start_time
                     )
                 )
@@ -182,7 +165,7 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        update.message,
+                        progress_message,
                         start_time
                     )
                 )
@@ -197,7 +180,7 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        update.message,
+                        progress_message,
                         start_time
                     )
                 )
@@ -215,7 +198,7 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        update.message,
+                        progress_message,
                         start_time
                     )
                 )
@@ -232,14 +215,13 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                 text=client.translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
                     time_taken_for_download, time_taken_for_upload),
                 chat_id=update.message.chat.id,
-                message_id=update.message.id,
+                message_id=progress_message.id,
                 disable_web_page_preview=True
             )
     else:
         await bot.edit_message_text(
-            text=client.translation.NO_VOID_FORMAT_FOUND.format(
-                "Incorrect Link"),
+            text=client.translation.NO_VOID_FORMAT_FOUND.format("Incorrect Link"),
             chat_id=update.message.chat.id,
-            message_id=update.message.id,
+            message_id=progress_message.id,
             disable_web_page_preview=True
         )
