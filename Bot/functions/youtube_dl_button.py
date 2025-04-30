@@ -7,6 +7,7 @@ import time
 import json
 import asyncio
 import queue
+import threading
 from datetime import datetime
 from PIL import Image
 from hachoir.metadata import extractMetadata
@@ -71,7 +72,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
     # Start queue processing task
     queue_task = asyncio.create_task(process_progress_queue())
 
-    # yt-dlp progress hook
+    # yt-dlp progress hook (mimicking working bot)
     def progress_hook(d):
         if d['status'] == 'downloading':
             downloaded = d.get('downloaded_bytes', 0)
@@ -80,35 +81,55 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                 progress_queue.put((downloaded, total))
             else:
                 client.logger.debug(f"No total_bytes for {youtube_dl_url}: {d}")
+        elif d['status'] == 'error':
+            client.logger.debug(f"yt-dlp error: {d.get('error', 'Unknown error')}")
 
+    # Simplified ydl_opts to match working bot
+    is_audio_only = "audio" in tg_send_type
+    output_path = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}"
     ydl_opts = {
-        'format': youtube_dl_format,
-        'outtmpl': f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.%(ext)s",
+        'format': f"{youtube_dl_format}+bestaudio/best" if not is_audio_only else youtube_dl_format,
+        'outtmpl': output_path,
         'noplaylist': True,
         'progress_hooks': [progress_hook],
-        'quiet': True,
-        'no_warnings': True,
-        'youtube_skip_dash_manifest': True,
-        'no_part': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'merge_output_format': 'mp4' if not is_audio_only else None,
+        'quiet': False,
+        'verbose': True,
+        'no_warnings': False,
     }
-    if client.config.HTTP_PROXY:
-        ydl_opts['proxy'] = client.config.HTTP_PROXY
-    if "audio" in tg_send_type:
+    if is_audio_only:
         ydl_opts['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': youtube_dl_format,
+            'preferredquality': '192',
         }]
-        ydl_opts['format'] = 'bestaudio'
+    if client.config.HTTP_PROXY:
+        ydl_opts['proxy'] = client.config.HTTP_PROXY
+
+    # Run download in a separate thread (mimicking synchronous behavior)
+    def run_download():
+        try:
+            with YoutubeDL(ydl_opts) as ydl:
+                client.logger.debug(f"Starting yt-dlp download for {youtube_dl_url} with options: {ydl_opts}")
+                ydl.download([youtube_dl_url])
+        except Exception as e:
+            client.logger.debug(f"yt-dlp download failed for {youtube_dl_url}: {str(e)}")
+            raise e
 
     try:
-        with YoutubeDL(ydl_opts) as ydl:
-            await asyncio.to_thread(ydl.download, [youtube_dl_url])
-        download_directory = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.{youtube_dl_ext}"
-        if "audio" in tg_send_type:
-            download_directory = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.mp3"
+        download_thread = threading.Thread(target=run_download)
+        download_thread.start()
+        # Wait for the thread to complete with a timeout
+        await asyncio.get_event_loop().run_in_executor(None, download_thread.join, 120)
+        download_directory = f"{output_path}.{youtube_dl_ext}"
+        if is_audio_only:
+            download_directory = f"{output_path}.mp3"
+            if not os.path.exists(download_directory) and os.path.exists(output_path):
+                os.rename(output_path, download_directory)
     except Exception as e:
         queue_task.cancel()
+        client.logger.debug(f"Download failed for {youtube_dl_url}: {str(e)}")
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
             chat_id=update.message.chat.id,
@@ -285,7 +306,6 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     os.remove(thumb_image_path)
             time_taken_for_download = (end_one - start).seconds
             time_taken_for_upload = (end_two - end_one).seconds
-            # Retry edit_message_text to ensure success message overwrites progress
             for attempt in range(3):
                 try:
                     await bot.edit_message_text(
