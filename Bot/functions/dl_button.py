@@ -2,28 +2,26 @@
 # -*- coding: utf-8 -*-
 # (c) Shrimadhav U K
 
-
-import asyncio
 import os
 import time
-import re
+import math
 import random
-from datetime import datetime
-from hachoir.metadata import extractMetadata
-from hachoir.parser import createParser
-from PIL import Image
+import asyncio
+from aiohttp.client import ClientSession
 from pyrogram import Client, enums
 from pyrogram.types import CallbackQuery
-from .display_progress import progress_for_pyrogram
+from pyrogram.errors import FloodWait
 from .download import download_coroutine
+from .display_progress import humanbytes, TimeFormatter
 from .helper import run_cmd, ffmpeg_supported_video_mimetypes
+from PIL import Image
+from hachoir.metadata import extractMetadata
+from hachoir.parser import createParser
+import re
 from .. import client
 
-
-# Detect URLS using Regex. https://stackoverflow.com/a/3809435/15561455
 URL_REGEX = re.compile(
     pattern=r'(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*))(.*)?')
-
 
 async def ddl_call_back(bot: Client, update: CallbackQuery):
     tg_send_type, _, __ = update.data.split("=")
@@ -34,7 +32,7 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
     youtube_dl_url = regex.group(1)
     text = regex.group(2) if regex.group(2) else ""
     if "|" in text:
-        url_parts = text.split("|")  # Fixed: Parse text, not youtube_dl_url
+        url_parts = text.split("|")
         if len(url_parts) == 2:
             _ = url_parts[0]
             custom_file_name = url_parts[1]
@@ -121,8 +119,6 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                 if client.guess_mime_type(download_directory) in ffmpeg_supported_video_mimetypes:
                     await run_cmd('ffmpeg -ss {} -i "{}" -vframes 1 "{}"'.format(random.randint(0, duration), download_directory, thumb_image_path))
             if os.path.exists(thumb_image_path):
-                width = 0
-                height = 0
                 metadata = extractMetadata(createParser(thumb_image_path))
                 if metadata.has("width"):
                     width = metadata.get("width")
@@ -140,68 +136,77 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
             else:
                 thumb_image_path = None
             start_time = time.time()
-            if tg_send_type == "audio":
-                media = await bot.send_audio(
-                    chat_id=update.message.chat.id,
-                    audio=download_directory,
-                    caption=description,
-                    duration=duration,
-                    thumb=thumb_image_path,
-                    reply_to_message_id=update.message.reply_to_message.id,
-                    progress=progress_for_pyrogram,
-                    progress_args=(
-                        client.translation.UPLOAD_START,
-                        progress_message,
-                        start_time
+            media = None
+            try:
+                if tg_send_type == "audio":
+                    media = await bot.send_audio(
+                        chat_id=update.message.chat.id,
+                        audio=download_directory,
+                        caption=description,
+                        duration=duration,
+                        thumb=thumb_image_path,
+                        reply_to_message_id=update.message.reply_to_message.id,
+                        progress=progress_for_pyrogram,
+                        progress_args=(
+                            client.translation.UPLOAD_START,
+                            progress_message,
+                            start_time
+                        )
                     )
-                )
-            elif tg_send_type == "file":
-                media = await bot.send_document(
-                    chat_id=update.message.chat.id,
-                    document=download_directory,
-                    thumb=thumb_image_path,
-                    caption=description,
-                    reply_to_message_id=update.message.reply_to_message.id,
-                    progress=progress_for_pyrogram,
-                    progress_args=(
-                        client.translation.UPLOAD_START,
-                        progress_message,
-                        start_time
+                elif tg_send_type == "file":
+                    media = await bot.send_document(
+                        chat_id=update.message.chat.id,
+                        document=download_directory,
+                        thumb=thumb_image_path,
+                        caption=description,
+                        reply_to_message_id=update.message.reply_to_message.id,
+                        progress=progress_for_pyrogram,
+                        progress_args=(
+                            client.translation.UPLOAD_START,
+                            progress_message,
+                            start_time
+                        )
                     )
-                )
-            elif tg_send_type == "vm":
-                media = await bot.send_video_note(
-                    chat_id=update.message.chat.id,
-                    video_note=download_directory,
-                    duration=duration,
-                    length=width,
-                    thumb=thumb_image_path,
-                    reply_to_message_id=update.message.reply_to_message.id,
-                    progress=progress_for_pyrogram,
-                    progress_args=(
-                        client.translation.UPLOAD_START,
-                        progress_message,
-                        start_time
+                elif tg_send_type == "vm":
+                    media = await bot.send_video_note(
+                        chat_id=update.message.chat.id,
+                        video_note=download_directory,
+                        duration=duration,
+                        length=width,
+                        thumb=thumb_image_path,
+                        reply_to_message_id=update.message.reply_to_message.id,
+                        progress=progress_for_pyrogram,
+                        progress_args=(
+                            client.translation.UPLOAD_START,
+                            progress_message,
+                            start_time
+                        )
                     )
-                )
-            elif tg_send_type == "video":
-                media = await bot.send_video(
-                    chat_id=update.message.chat.id,
-                    video=download_directory,
-                    caption=description,
-                    duration=duration,
-                    width=width,
-                    height=height,
-                    supports_streaming=True,
-                    thumb=thumb_image_path,
-                    reply_to_message_id=update.message.reply_to_message.id,
-                    progress=progress_for_pyrogram,
-                    progress_args=(
-                        client.translation.UPLOAD_START,
-                        progress_message,
-                        start_time
+                elif tg_send_type == "video":
+                    media = await bot.send_video(
+                        chat_id=update.message.chat.id,
+                        video=download_directory,
+                        caption=description,
+                        duration=duration,
+                        width=width,
+                        height=height,
+                        supports_streaming=True,
+                        thumb=thumb_image_path,
+                        reply_to_message_id=update.message.reply_to_message.id,
+                        progress=progress_for_pyrogram,
+                        progress_args=(
+                            client.translation.UPLOAD_START,
+                            progress_message,
+                            start_time
+                        )
                     )
+            except Exception as e:
+                await bot.edit_message_text(
+                    text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
+                    chat_id=update.message.chat.id,
+                    message_id=progress_message.id
                 )
+                return False
             end_two = datetime.now()
             if client.config.DUMP_ID:
                 await media.copy(client.config.DUMP_ID, caption=f'User Name: {update.from_user.first_name}\nUser ID: {update.from_user.id}\nLink: {youtube_dl_url}')
@@ -211,13 +216,22 @@ async def ddl_call_back(bot: Client, update: CallbackQuery):
                     os.remove(thumb_image_path)
             time_taken_for_download = (end_one - start).seconds
             time_taken_for_upload = (end_two - end_one).seconds
-            await bot.edit_message_text(
-                text=client.translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
-                    time_taken_for_download, time_taken_for_upload),
-                chat_id=update.message.chat.id,
-                message_id=progress_message.id,
-                disable_web_page_preview=True
-            )
+            # Retry edit_message_text to ensure success message overwrites progress
+            for attempt in range(3):
+                try:
+                    await bot.edit_message_text(
+                        text=client.translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
+                            time_taken_for_download, time_taken_for_upload),
+                        chat_id=update.message.chat.id,
+                        message_id=progress_message.id,
+                        disable_web_page_preview=True
+                    )
+                    break
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+                except Exception as e:
+                    client.logger.debug(f"Failed to edit success message: {e}")
+                    await asyncio.sleep(1)
     else:
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format("Incorrect Link"),
