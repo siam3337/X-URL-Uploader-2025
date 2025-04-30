@@ -13,7 +13,6 @@ from hachoir.metadata import extractMetadata
 from hachoir.parser import createParser
 from pyrogram import Client, enums
 from pyrogram.types import CallbackQuery
-from pyrogram.errors import FloodWait
 from .display_progress import progress_for_pyrogram
 from .help_Nekmo_ffmpeg import generate_screen_shots
 from .helper import run_cmd, ffmpeg_supported_video_mimetypes
@@ -174,79 +173,70 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
             if "title" in response_json:
                 title = response_json["title"]
             start_time = time.time()
-            media = None
-            try:
-                if tg_send_type == "audio":
-                    media = await bot.send_audio(
-                        chat_id=update.message.chat.id,
-                        audio=download_directory,
-                        caption=description,
-                        duration=duration,
-                        performer=performer,
-                        title=title,
-                        thumb=thumb_image_path,
-                        reply_to_message_id=update.message.reply_to_message.id,
-                        progress=progress_for_pyrogram,
-                        progress_args=(
-                            client.translation.UPLOAD_START,
-                            progress_message,
-                            start_time
-                        )
-                    )
-                elif tg_send_type == "file":
-                    media = await bot.send_document(
-                        chat_id=update.message.chat.id,
-                        document=download_directory,
-                        thumb=thumb_image_path,
-                        caption=description,
-                        reply_to_message_id=update.message.reply_to_message.id,
-                        progress=progress_for_pyrogram,
-                        progress_args=(
-                            client.translation.UPLOAD_START,
-                            progress_message,
-                            start_time
-                        )
-                    )
-                elif tg_send_type == "video":
-                    media = await bot.send_video(
-                        chat_id=update.message.chat.id,
-                        video=download_directory,
-                        caption=description,
-                        duration=duration,
-                        width=width,
-                        height=height,
-                        supports_streaming=True,
-                        thumb=thumb_image_path,
-                        reply_to_message_id=update.message.reply_to_message.id,
-                        progress=progress_for_pyrogram,
-                        progress_args=(
-                            client.translation.UPLOAD_START,
-                            progress_message,
-                            start_time
-                        )
-                    )
-                elif tg_send_type == "vm":
-                    media = await bot.send_video_note(
-                        chat_id=update.message.chat.id,
-                        video_note=download_directory,
-                        duration=duration,
-                        length=width,
-                        thumb=thumb_image_path,
-                        reply_to_message_id=update.message.reply_to_message.id,
-                        progress=progress_for_pyrogram,
-                        progress_args=(
-                            client.translation.UPLOAD_START,
-                            progress_message,
-                            start_time
-                        )
-                    )
-            except Exception as e:
-                await bot.edit_message_text(
-                    text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
+            if tg_send_type == "audio":
+                media = await bot.send_audio(
                     chat_id=update.message.chat.id,
-                    message_id=progress_message.id
+                    audio=download_directory,
+                    caption=description,
+                    duration=duration,
+                    performer=performer,
+                    title=title,
+                    thumb=thumb_image_path,
+                    reply_to_message_id=update.message.reply_to_message.id,
+                    progress=progress_for_pyrogram,
+                    progress_args=(
+                        client.translation.UPLOAD_START,
+                        progress_message,
+                        start_time
+                    )
                 )
-                return False
+            elif tg_send_type == "file":
+                media = await bot.send_document(
+                    chat_id=update.message.chat.id,
+                    document=download_directory,
+                    thumb=thumb_image_path,
+                    caption=description,
+                    reply_to_message_id=update.message.reply_to_message.id,
+                    progress=progress_for_pyrogram,
+                    progress_args=(
+                        client.translation.UPLOAD_START,
+                        progress_message,
+                        start_time
+                    )
+                )
+            elif tg_send_type == "video":
+                media = await bot.send_video(
+                    chat_id=update.message.chat.id,
+                    video=download_directory,
+                    caption=description,
+                    duration=duration,
+                    width=width,
+                    height=height,
+                    supports_streaming=True,
+                    thumb=thumb_image_path,
+                    reply_to_message_id=update.message.reply_to_message.id,
+                    progress=progress_for_pyrogram,
+                    progress_args=(
+                        client.translation.UPLOAD_START,
+                        progress_message,
+                        start_time
+                    )
+                )
+            elif tg_send_type == "vm":
+                media = await bot.send_video_note(
+                    chat_id=update.message.chat.id,
+                    video_note=download_directory,
+                    duration=duration,
+                    length=width,
+                    thumb=thumb_image_path,
+                    reply_to_message_id=update.message.reply_to_message.id,
+                    progress=progress_for_pyrogram,
+                    progress_args=(
+                        client.translation.UPLOAD_START,
+                        progress_message,
+                        start_time
+                    )
+                )
             end_two = datetime.now()
             if is_screenshotable and client.config.SHOULD_GENERATE_SCREEN_SHOTS:
                 await bot.send_chat_action(update.message.chat.id, enums.ChatAction.UPLOAD_PHOTO)
@@ -285,22 +275,13 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     os.remove(thumb_image_path)
             time_taken_for_download = (end_one - start).seconds
             time_taken_for_upload = (end_two - end_one).seconds
-            # Retry edit_message_text to ensure success message overwrites progress
-            for attempt in range(3):
-                try:
-                    await bot.edit_message_text(
-                        text=client.translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
-                            time_taken_for_download, time_taken_for_upload),
-                        chat_id=update.message.chat.id,
-                        message_id=progress_message.id,
-                        disable_web_page_preview=True
-                    )
-                    break
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                except Exception as e:
-                    client.logger.debug(f"Failed to edit success message: {e}")
-                    await asyncio.sleep(1)
+            await bot.edit_message_text(
+                text=client.translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
+                    time_taken_for_download, time_taken_for_upload),
+                chat_id=update.message.chat.id,
+                message_id=progress_message.id,
+                disable_web_page_preview=True
+            )
     else:
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format("Incorrect Link"),
