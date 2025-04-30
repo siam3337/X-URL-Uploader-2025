@@ -7,6 +7,7 @@ import time
 import json
 import asyncio
 import random
+import re
 from datetime import datetime
 from PIL import Image
 from hachoir.metadata import extractMetadata
