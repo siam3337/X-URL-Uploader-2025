@@ -6,6 +6,7 @@ import os
 import time
 import json
 import asyncio
+import queue
 from datetime import datetime
 from PIL import Image
 from hachoir.metadata import extractMetadata
@@ -45,14 +46,14 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         reply_to_message_id=update.message.reply_to_message.id
     )
 
-    # Queue for progress updates
-    progress_queue = asyncio.Queue()
+    # Thread-safe queue for progress updates
+    progress_queue = queue.Queue()
 
     # Async task to consume progress queue
     async def process_progress_queue():
         while True:
             try:
-                downloaded, total = await progress_queue.get()
+                downloaded, total = progress_queue.get_nowait()
                 await progress_for_pyrogram(
                     downloaded,
                     total,
@@ -61,6 +62,8 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     start.timestamp()
                 )
                 progress_queue.task_done()
+            except queue.Empty:
+                await asyncio.sleep(0.1)  # Avoid busy-waiting
             except asyncio.CancelledError:
                 break
 
@@ -73,9 +76,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
             downloaded = d.get('downloaded_bytes', 0)
             total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
             if total > 0:
-                asyncio.get_event_loop().run_until_complete(
-                    progress_queue.put((downloaded, total))
-                )
+                progress_queue.put((downloaded, total))
             else:
                 client.logger.debug(f"No total_bytes for {youtube_dl_url}: {d}")
 
