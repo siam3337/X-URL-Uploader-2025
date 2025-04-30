@@ -6,7 +6,8 @@ import os
 import time
 import json
 import asyncio
-import queue
+import random
+import re
 from datetime import datetime
 from PIL import Image
 from hachoir.metadata import extractMetadata
@@ -18,6 +19,12 @@ from .help_Nekmo_ffmpeg import generate_screen_shots
 from .helper import run_cmd, ffmpeg_supported_video_mimetypes
 from .. import client
 from yt_dlp import YoutubeDL
+
+
+# Detect URLS using Regex. https://stackoverflow.com/a/3809435/15561455
+URL_REGEX = re.compile(
+    pattern=r'(https?:\/\/(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b(?:[-a-zA-Z0-9()@:%_\+.~#?&//=]*))(.*)?')
+
 
 async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
     cb_data = update.data
@@ -40,45 +47,25 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
     custom_file_name = client.custom_caption.get(update.from_user.id) if client.custom_caption.get(update.from_user.id) else client.translation.CUSTOM_CAPTION_UL_FILE.format(bot.me.mention)
     description = custom_file_name
     start = datetime.now()
-    progress_message = await bot.send_message(
-        chat_id=update.message.chat.id,
+    await bot.edit_message_text(
         text=client.translation.DOWNLOAD_START,
-        reply_to_message_id=update.message.reply_to_message.id
+        chat_id=update.message.chat.id,
+        message_id=update.message.id
     )
 
-    # Thread-safe queue for progress updates
-    progress_queue = queue.Queue()
-
-    # Async task to consume progress queue
-    async def process_progress_queue():
-        while True:
-            try:
-                downloaded, total = progress_queue.get_nowait()
+    # yt-dlp progress hook
+    async def progress_hook(d):
+        if d['status'] == 'downloading':
+            downloaded = d.get('downloaded_bytes', 0)
+            total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
+            if total:
                 await progress_for_pyrogram(
                     downloaded,
                     total,
                     "Downloading...",
-                    progress_message,
+                    update.message,
                     start.timestamp()
                 )
-                progress_queue.task_done()
-            except queue.Empty:
-                await asyncio.sleep(0.1)  # Avoid busy-waiting
-            except asyncio.CancelledError:
-                break
-
-    # Start queue processing task
-    queue_task = asyncio.create_task(process_progress_queue())
-
-    # yt-dlp progress hook
-    def progress_hook(d):
-        if d['status'] == 'downloading':
-            downloaded = d.get('downloaded_bytes', 0)
-            total = d.get('total_bytes', d.get('total_bytes_estimate', 0))
-            if total > 0:
-                progress_queue.put((downloaded, total))
-            else:
-                client.logger.debug(f"No total_bytes for {youtube_dl_url}: {d}")
 
     ydl_opts = {
         'format': youtube_dl_format,
@@ -88,7 +75,6 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         'quiet': True,
         'no_warnings': True,
         'youtube_skip_dash_manifest': True,
-        'no_part': True,
     }
     if client.config.HTTP_PROXY:
         ydl_opts['proxy'] = client.config.HTTP_PROXY
@@ -107,22 +93,19 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         if "audio" in tg_send_type:
             download_directory = f"{client.config.DOWNLOAD_LOCATION}/{update.from_user.id}.mp3"
     except Exception as e:
-        queue_task.cancel()
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
             chat_id=update.message.chat.id,
-            message_id=progress_message.id
+            message_id=update.message.id
         )
         return False
-    finally:
-        queue_task.cancel()
 
     if os.path.exists(download_directory):
         end_one = datetime.now()
         await bot.edit_message_text(
             text=client.translation.UPLOAD_START,
             chat_id=update.message.chat.id,
-            message_id=progress_message.id
+            message_id=update.message.id
         )
         file_size = client.config.TG_MAX_FILE_SIZE + 1
         try:
@@ -135,7 +118,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
             await bot.edit_message_text(
                 chat_id=update.message.chat.id,
                 text=client.translation.RCHD_TG_API_LIMIT.format(humanbytes(file_size)),
-                message_id=progress_message.id
+                message_id=update.message.id
             )
         else:
             is_screenshotable = False
@@ -186,7 +169,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        progress_message,
+                        update.message,
                         start_time
                     )
                 )
@@ -200,7 +183,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        progress_message,
+                        update.message,
                         start_time
                     )
                 )
@@ -218,7 +201,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        progress_message,
+                        update.message,
                         start_time
                     )
                 )
@@ -233,7 +216,7 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                     progress=progress_for_pyrogram,
                     progress_args=(
                         client.translation.UPLOAD_START,
-                        progress_message,
+                        update.message,
                         start_time
                     )
                 )
@@ -279,13 +262,13 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
                 text=client.translation.AFTER_SUCCESSFUL_UPLOAD_MSG_WITH_TS.format(
                     time_taken_for_download, time_taken_for_upload),
                 chat_id=update.message.chat.id,
-                message_id=progress_message.id,
+                message_id=update.message.id,
                 disable_web_page_preview=True
             )
     else:
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format("Incorrect Link"),
             chat_id=update.message.chat.id,
-            message_id=progress_message.id,
+            message_id=update.message.id,
             disable_web_page_preview=True
         )
