@@ -163,9 +163,9 @@ async def youtube_dl_call_back(bot: Client, update: CallbackQuery):
         await bot.edit_message_text(
             text=client.translation.NO_VOID_FORMAT_FOUND.format(str(e)),
             chat_id=update.message.chat.id,
-            message_idVisualViewportWidth: 100%
-    )
-    return False
+            message_id=progress_message.id
+        )
+        return False
     finally:
         queue_task.cancel()
 
