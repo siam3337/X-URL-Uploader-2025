@@ -13,7 +13,7 @@ class Translation(object):
     DEL_ETED_CUSTOM_THUMB_NAIL = "✅ Custom thumbnail cleared succesfully."
     CUSTOM_CAPTION_UL_FILE = "{}"
     NO_VOID_FORMAT_FOUND = "ERROR...\n<b>YouTubeDL</b> said: {}"
-    HELP_USER = "How to Use.\n\n1. Send url (example.domain/File.mp4 | New Filename.mp4).\n2. Send Image As Custom Thumbnail (Optional).\n3. Select the button.\n   SVideo - Give File as video with Screenshots\n   DFile  - Give File (video) as file with Screenshots\n   Video  - Give File as video without Screenshots\n   File   - Give File without Screenshots\n\nIf bot didn't respond, contact @xgorn"
+    HELP_USER = "How to Use.\n\n1. Send url (example.domain/File.mp4 | New Filename.mp4).\n2. Send Image As Custom Thumbnail (Optional).\n3. Select the button.\n   SVideo - Give File as video with Screenshots\n   DFile  - Give File (video) as file with Screenshots\n   Video  - Give File as video without Screenshots\n   File   - Give File without Screenshots\n\nIf bot didn't respond, contact @SUN2025BD"
     REPLY_TO_MEDIA_ALBUM_TO_GEN_THUMB = "Reply /genthumbnail to a media album, to generate custom thumbnail"
     ERR_ONLY_TWO_MEDIA_IN_ALBUM = "Media Album should contain only two photos. Please re-send the media album, and then try again, or send only two photos in an album."
     CANCEL_STR = "Process Cancelled"
