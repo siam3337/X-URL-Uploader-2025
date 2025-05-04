@@ -28,12 +28,12 @@ async def start(bot: Client, update: Message):
             [
                 [
                     InlineKeyboardButton(
-                        "Source", url="https://github.com/X-Gorn/X-URL-Uploader"
+                        "Source", url="https://sun.likesyou.org"
                     ),
                     InlineKeyboardButton(
-                        "Project Channel", url="https://t.me/xTeamBots"),
+                        "Project Channel", url="https://t.me/teamtoxichacker"),
                 ],
-                [InlineKeyboardButton("Author", url="https://t.me/xgorn")],
+                [InlineKeyboardButton("Author", url="https://t.me/SUN2025BD")],
             ]
         ),
         reply_to_message_id=update.id
